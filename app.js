@@ -283,7 +283,7 @@ function renderSets() {
 }
 
 function addSet() {
-  if (sets.length >= 5) { toast('최대 5세트까지 입력 가능합니다.', 'error'); return; }
+  if (sets.length >= 6) { toast('최대 6세트까지 입력 가능합니다.', 'error'); return; }
   sets.push({ a:'', b:'' }); renderSets();
 }
 function removeSet() { if (sets.length > 1) { sets.pop(); renderSets(); } }
