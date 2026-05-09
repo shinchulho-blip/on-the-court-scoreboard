@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>🎾 온더코트 스코어보드</title>
+  <meta name="description" content="테니스 경기 스코어 기록 및 기간별 승률 랭킹 관리 시스템">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="app-header">
+    <span class="logo">🎾</span>
+    <div>
+      <h1>온더코트 <span>스코어보드</span></h1>
+    </div>
+  </header>
+
+  <!-- RANKINGS TAB -->
+  <section id="sec-rankings" class="section active">
+    <div class="section-header">
+      <div>
+        <div class="section-title">🏆 랭킹</div>
+        <div class="section-subtitle">기간별 승률 순위</div>
+      </div>
+    </div>
+
+    <div class="period-filter">
+      <button class="period-btn" data-period="1month" onclick="rankPeriod='1month';renderRankings()">최근 1개월</button>
+      <button class="period-btn" data-period="1year"  onclick="rankPeriod='1year';renderRankings()">최근 1년</button>
+      <button class="period-btn active" data-period="all" onclick="rankPeriod='all';renderRankings()">전체 기간</button>
+    </div>
+
+    <div id="ranking-list" class="ranking-list"></div>
+  </section>
+
+  <!-- HISTORY TAB -->
+  <section id="sec-history" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">📋 경기 기록</div>
+        <div class="section-subtitle">날짜별 경기 결과</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="switchTab('add')" style="width:auto">+ 경기 등록</button>
+    </div>
+    <div id="history-list"></div>
+  </section>
+
+  <!-- ADD MATCH TAB -->
+  <section id="sec-add" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">➕ 경기 등록</div>
+        <div class="section-subtitle">오늘의 경기를 기록하세요</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <!-- 날짜 -->
+      <div class="form-group">
+        <label class="form-label">📅 경기 날짜</label>
+        <input type="date" class="form-input" id="match-date">
+      </div>
+
+      <!-- 경기 종류 -->
+      <div class="form-group">
+        <label class="form-label">경기 종류</label>
+        <div class="type-toggle">
+          <button class="type-btn singles active" data-type="singles" onclick="setMatchType('singles')">🎾 단식</button>
+          <button class="type-btn doubles" data-type="doubles" onclick="setMatchType('doubles')">🎾🎾 복식</button>
+        </div>
+      </div>
+
+      <!-- 단식 선수 선택 -->
+      <div id="singles-section">
+        <div class="form-group">
+          <label class="form-label">A팀 선수</label>
+          <select class="form-input" id="singles-a"><option value="">선수 선택</option></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">B팀 선수</label>
+          <select class="form-input" id="singles-b"><option value="">선수 선택</option></select>
+        </div>
+      </div>
+
+      <!-- 복식 선수 선택 -->
+      <div id="doubles-section" style="display:none">
+        <div class="form-group">
+          <label class="form-label">순서대로 선수 선택 <span style="color:var(--text3);font-size:0.75rem">1·2번→A팀 / 3·4번→B팀</span></label>
+          <div id="sel-display" class="selection-display"></div>
+          <div id="player-pool" class="player-pool"></div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- 세트 스코어 -->
+      <div class="form-group">
+        <label class="form-label">세트 스코어</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;font-size:0.75rem;color:var(--text3);text-align:center;padding:0 0 4px">
+          <span style="color:var(--primary);font-weight:700">A팀</span>
+          <span style="color:var(--yellow);font-weight:700">B팀</span>
+        </div>
+        <div id="set-scores" class="set-scores"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="add-set-btn" onclick="addSet()" style="flex:1">+ 세트 추가</button>
+          <button class="add-set-btn" onclick="removeSet()" style="flex:1">− 세트 삭제</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="submitMatch()" style="margin-top:8px">
+        🎾 경기 등록하기
+      </button>
+    </div>
+  </section>
+
+  <!-- PLAYERS TAB -->
+  <section id="sec-players" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">👥 선수 관리</div>
+        <div class="section-subtitle">참여 선수 목록</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="form-label" style="margin-bottom:10px">새 선수 추가</div>
+      <div style="display:flex;gap:8px">
+        <input type="text" class="form-input" id="player-name-input" placeholder="선수 이름 입력..." style="flex:1">
+        <button class="btn btn-primary btn-sm" onclick="addPlayer()" style="width:auto;white-space:nowrap">등록</button>
+      </div>
+    </div>
+
+    <div class="section-title" style="font-size:0.9rem;color:var(--text2);margin-bottom:10px" id="player-count"></div>
+    <div id="player-list" class="player-list"></div>
+
+    <div style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border);text-align:center">
+      <button onclick="resetData()" style="background:none;border:1px solid var(--border2);color:var(--text3);font-family:inherit;font-size:0.8rem;padding:8px 18px;border-radius:8px;cursor:pointer">
+        ⚠️ 전체 데이터 초기화
+      </button>
+    </div>
+  </section>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="rankings" onclick="switchTab('rankings')">
+      <span class="nav-icon">🏆</span>
+      <span class="nav-label">랭킹</span>
+    </button>
+    <button class="nav-btn" data-tab="history" onclick="switchTab('history')">
+      <span class="nav-icon">📋</span>
+      <span class="nav-label">경기 기록</span>
+    </button>
+    <button class="nav-btn" data-tab="add" onclick="switchTab('add')">
+      <span class="nav-icon">➕</span>
+      <span class="nav-label">경기 등록</span>
+    </button>
+    <button class="nav-btn" data-tab="players" onclick="switchTab('players')">
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">선수 관리</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
