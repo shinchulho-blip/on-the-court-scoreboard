@@ -1,37 +1,56 @@
-// ── DB ──────────────────────────────────────────────
+// ── SUPABASE ─────────────────────────────────────────
+const SUPABASE_URL = 'https://gngpqiymvoluijeyrwqd.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImduZ3BxaXltdm9sdWlqZXlyd3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyNTE5MDUsImV4cCI6MjA5MzgyNzkwNX0.fgeB2TQmzGzuw5MTzBC9g2yzyMPhzM7mcWWOGM7rkXw';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── DB ───────────────────────────────────────────────
 const DB = {
-  getPlayers: () => JSON.parse(localStorage.getItem('t_players') || '[]'),
-  savePlayers: (d) => localStorage.setItem('t_players', JSON.stringify(d)),
-  getMatches: () => JSON.parse(localStorage.getItem('t_matches') || '[]'),
-  saveMatches: (d) => localStorage.setItem('t_matches', JSON.stringify(d)),
-
-  addPlayer(name) {
-    const list = this.getPlayers();
-    if (list.find(p => p.name === name)) return { error: '이미 등록된 이름입니다.' };
-    const p = { id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), name, createdAt: new Date().toISOString() };
-    list.push(p);
-    this.savePlayers(list);
-    return { player: p };
+  async getPlayers() {
+    const { data, error } = await sb.from('players').select('*').order('created_at', { ascending: true });
+    if (error) { console.error(error); return []; }
+    return (data || []).map(p => ({ id: p.id, name: p.name, createdAt: p.created_at }));
   },
 
-  deletePlayer(id) {
-    this.savePlayers(this.getPlayers().filter(p => p.id !== id));
+  async addPlayer(name) {
+    const { data: dup } = await sb.from('players').select('id').eq('name', name).maybeSingle();
+    if (dup) return { error: '이미 등록된 이름입니다.' };
+    const id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const { error } = await sb.from('players').insert({ id, name });
+    if (error) return { error: '등록 중 오류가 발생했습니다.' };
+    return { player: { id, name } };
   },
 
-  addMatch(data) {
-    const list = this.getMatches();
-    const m = { id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2,8), ...data, createdAt: new Date().toISOString() };
-    list.push(m);
-    this.saveMatches(list);
-    return m;
+  async deletePlayer(id) {
+    await sb.from('players').delete().eq('id', id);
   },
 
-  deleteMatch(id) {
-    this.saveMatches(this.getMatches().filter(m => m.id !== id));
+  async getMatches() {
+    const { data, error } = await sb.from('matches').select('*').order('date', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return (data || []).map(m => ({
+      id: m.id, date: m.date, type: m.type,
+      teamA: m.team_a, teamB: m.team_b,
+      sets: m.sets, winner: m.winner
+    }));
+  },
+
+  async addMatch(data) {
+    const id = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const { error } = await sb.from('matches').insert({
+      id, date: data.date, type: data.type,
+      team_a: data.teamA, team_b: data.teamB,
+      sets: data.sets, winner: data.winner
+    });
+    if (error) { console.error(error); return null; }
+    return { id, ...data };
+  },
+
+  async deleteMatch(id) {
+    await sb.from('matches').delete().eq('id', id);
   }
 };
 
-// ── RANKING ENGINE ──────────────────────────────────
+// ── RANKING ENGINE ───────────────────────────────────
 const Rankings = {
   getStart(period) {
     if (period === 'all') return null;
@@ -40,173 +59,136 @@ const Rankings = {
     if (period === '1year') d.setFullYear(d.getFullYear() - 1);
     return d.toISOString().split('T')[0];
   },
-
   calcWinner(sets) {
     let a = 0, b = 0;
     sets.forEach(s => { if (s.a > s.b) a++; else if (s.b > s.a) b++; });
     return a > b ? 'A' : b > a ? 'B' : null;
   },
-
-  compute(period) {
-    const players = DB.getPlayers();
-    const matches = DB.getMatches();
+  compute(players, matches, period) {
     const start = this.getStart(period);
     const filtered = start ? matches.filter(m => m.date >= start) : matches;
-
     const stats = {};
     players.forEach(p => { stats[p.id] = { player: p, wins: 0, losses: 0, total: 0 }; });
-
     filtered.forEach(m => {
-      const winner = m.winner;
-      if (!winner) return;
-      const winTeam = winner === 'A' ? m.teamA : m.teamB;
-      const loseTeam = winner === 'A' ? m.teamB : m.teamA;
-      winTeam.forEach(id => { if (stats[id]) { stats[id].wins++; stats[id].total++; } });
-      loseTeam.forEach(id => { if (stats[id]) { stats[id].losses++; stats[id].total++; } });
+      if (!m.winner) return;
+      const win = m.winner === 'A' ? m.teamA : m.teamB;
+      const lose = m.winner === 'A' ? m.teamB : m.teamA;
+      win.forEach(id => { if (stats[id]) { stats[id].wins++; stats[id].total++; } });
+      lose.forEach(id => { if (stats[id]) { stats[id].losses++; stats[id].total++; } });
     });
-
-    return Object.values(stats)
-      .filter(s => s.total > 0)
+    return Object.values(stats).filter(s => s.total > 0)
       .sort((a, b) => {
         const ra = a.wins / a.total, rb = b.wins / b.total;
-        if (Math.abs(rb - ra) > 0.0001) return rb - ra;
-        return b.wins - a.wins;
+        return Math.abs(rb - ra) > 0.0001 ? rb - ra : b.wins - a.wins;
       });
   }
 };
 
-// ── HELPERS ─────────────────────────────────────────
+// ── HELPERS ──────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const fmt = date => {
-  const d = new Date(date + 'T00:00:00');
-  return d.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
-};
+let _cache = []; // player name cache
 
-function toast(msg, type = 'success') {
-  document.querySelectorAll('.toast').forEach(t => t.remove());
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2500);
+function playerName(id) {
+  const p = _cache.find(p => p.id === id);
+  return p ? p.name : '?';
 }
-
-function getInitial(name) { return name.charAt(0).toUpperCase(); }
-
-function setScoreSummary(sets) {
-  return sets.map(s => `${s.a}-${s.b}`).join(' ');
-}
-
-function setCountScore(sets) {
+const fmt = date => new Date(date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+const setDetail = sets => sets.map(s => `${s.a}-${s.b}`).join(' ');
+function setCount(sets) {
   let a = 0, b = 0;
   sets.forEach(s => { if (s.a > s.b) a++; else if (s.b > s.a) b++; });
   return { a, b };
 }
-
-function playerName(id) {
-  const p = DB.getPlayers().find(p => p.id === id);
-  return p ? p.name : '?';
+function toast(msg, type = 'success') {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = `toast ${type}`; el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+function loading(id) {
+  const el = $(id);
+  if (el) el.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3)">⏳ 불러오는 중...</div>';
 }
 
-// ── TAB NAVIGATION ──────────────────────────────────
-let currentTab = 'rankings';
-
+// ── TAB ──────────────────────────────────────────────
 function switchTab(tab) {
-  currentTab = tab;
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   $('sec-' + tab).classList.add('active');
   document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-  renderTab(tab);
-}
-
-function renderTab(tab) {
   if (tab === 'rankings') renderRankings();
-  if (tab === 'history') renderHistory();
-  if (tab === 'add') initAddForm();
-  if (tab === 'players') renderPlayers();
+  if (tab === 'history')  renderHistory();
+  if (tab === 'add')      initAddForm();
+  if (tab === 'players')  renderPlayers();
 }
 
-// ── RANKINGS ────────────────────────────────────────
+// ── RANKINGS ─────────────────────────────────────────
 let rankPeriod = 'all';
 
-function renderRankings() {
-  const data = Rankings.compute(rankPeriod);
+async function renderRankings() {
   document.querySelectorAll('.period-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.period === rankPeriod));
-
-  const container = $('ranking-list');
-  if (data.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎾</div><p>아직 경기 기록이 없습니다.</p></div>`;
+  loading('ranking-list');
+  const [players, matches] = await Promise.all([DB.getPlayers(), DB.getMatches()]);
+  _cache = players;
+  const data = Rankings.compute(players, matches, rankPeriod);
+  const el = $('ranking-list');
+  if (!data.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🎾</div><p>아직 경기 기록이 없습니다.</p></div>';
     return;
   }
-
-  container.innerHTML = data.map((s, i) => {
+  el.innerHTML = data.map((s, i) => {
     const rate = Math.round(s.wins / s.total * 100);
-    const rateClass = rate >= 60 ? 'high' : rate >= 40 ? 'mid' : 'low';
-    const badgeClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
-    return `
-    <div class="rank-card">
-      <div class="rank-badge ${badgeClass}">${i < 3 ? ['🥇','🥈','🥉'][i] : i + 1}</div>
+    const rc = rate >= 60 ? 'high' : rate >= 40 ? 'mid' : 'low';
+    const bc = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    const barColor = rate >= 60 ? 'var(--primary)' : rate >= 40 ? 'var(--yellow)' : 'var(--danger)';
+    return `<div class="rank-card">
+      <div class="rank-badge ${bc}">${i < 3 ? ['🥇','🥈','🥉'][i] : i+1}</div>
       <div class="rank-info">
         <div class="rank-name">${s.player.name}</div>
         <div class="rank-meta">${s.total}경기 · ${s.wins}승 ${s.losses}패</div>
-        <div class="win-bar-wrap"><div class="win-bar" style="width:${rate}%; background:${rate>=60?'var(--primary)':rate>=40?'var(--yellow)':'var(--danger)'}"></div></div>
+        <div class="win-bar-wrap"><div class="win-bar" style="width:${rate}%;background:${barColor}"></div></div>
       </div>
-      <div class="rank-rate ${rateClass}">${rate}%</div>
+      <div class="rank-rate ${rc}">${rate}%</div>
     </div>`;
   }).join('');
 }
 
-// ── HISTORY ─────────────────────────────────────────
-function renderHistory() {
-  const matches = DB.getMatches();
-  const container = $('history-list');
-
-  if (matches.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><p>등록된 경기가 없습니다.</p></div>`;
+// ── HISTORY ──────────────────────────────────────────
+async function renderHistory() {
+  loading('history-list');
+  const [players, matches] = await Promise.all([DB.getPlayers(), DB.getMatches()]);
+  _cache = players;
+  const el = $('history-list');
+  if (!matches.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>등록된 경기가 없습니다.</p></div>';
     return;
   }
-
   const byDate = {};
-  matches.forEach(m => {
-    if (!byDate[m.date]) byDate[m.date] = [];
-    byDate[m.date].push(m);
-  });
-
-  const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
-  container.innerHTML = dates.map(date => {
-    const dayMatches = byDate[date];
-    const cards = dayMatches.map(m => matchCard(m)).join('');
-    return `<div class="date-group">
-      <div class="date-label">📅 ${fmt(date)} · ${dayMatches.length}경기</div>
-      ${cards}
-    </div>`;
-  }).join('');
+  matches.forEach(m => { (byDate[m.date] = byDate[m.date] || []).push(m); });
+  el.innerHTML = Object.keys(byDate).sort((a,b)=>b.localeCompare(a)).map(date => `
+    <div class="date-group">
+      <div class="date-label">📅 ${fmt(date)} · ${byDate[date].length}경기</div>
+      ${byDate[date].map(matchCard).join('')}
+    </div>`).join('');
 }
 
 function matchCard(m) {
-  const isDoubles = m.type === 'doubles';
-  const sets = m.sets || [];
-  const cnt = setCountScore(sets);
-  const winner = m.winner;
-
-  const teamANames = m.teamA.map(playerName).join(' / ');
-  const teamBNames = m.teamB.map(playerName).join(' / ');
-
-  const aWin = winner === 'A', bWin = winner === 'B';
-  const scoreStr = `${cnt.a} : ${cnt.b}`;
-  const setDetail = setScoreSummary(sets);
-
+  const dbl = m.type === 'doubles';
+  const cnt = setCount(m.sets || []);
+  const aWin = m.winner === 'A', bWin = m.winner === 'B';
+  const aN = m.teamA.map(playerName).join(' / ');
+  const bN = m.teamB.map(playerName).join(' / ');
   return `<div class="match-card">
-    <span class="match-type-badge ${isDoubles ? 'doubles' : 'singles'}">${isDoubles ? '복식' : '단식'}</span>
+    <span class="match-type-badge ${dbl?'doubles':'singles'}">${dbl?'복식':'단식'}</span>
     <div class="match-teams">
-      <div class="team-names team-a ${aWin ? 'winner' : 'loser'}">${aWin ? '🏆 ' : ''}${teamANames}</div>
+      <div class="team-names team-a ${aWin?'winner':'loser'}">${aWin?'🏆 ':''}${aN}</div>
       <div class="score-display">
-        <div class="score-sets">${scoreStr}</div>
-        <div class="score-detail">${setDetail}</div>
+        <div class="score-sets">${cnt.a} : ${cnt.b}</div>
+        <div class="score-detail">${setDetail(m.sets||[])}</div>
       </div>
-      <div class="team-names team-b ${bWin ? 'winner' : 'loser'}">${bWin ? '🏆 ' : ''}${teamBNames}</div>
+      <div class="team-names team-b ${bWin?'winner':'loser'}">${bWin?'🏆 ':''}${bN}</div>
     </div>
     <div class="match-actions">
       <button class="btn-delete" onclick="deleteMatch('${m.id}')">🗑 삭제</button>
@@ -214,138 +196,102 @@ function matchCard(m) {
   </div>`;
 }
 
-function deleteMatch(id) {
+async function deleteMatch(id) {
   if (!confirm('이 경기를 삭제할까요?')) return;
-  DB.deleteMatch(id);
+  await DB.deleteMatch(id);
   toast('경기가 삭제되었습니다.');
   renderHistory();
 }
 
 // ── ADD MATCH ────────────────────────────────────────
-let matchType = 'singles';
-let selectedPlayers = []; // for doubles: up to 4
-let sets = [];
+let matchType = 'singles', selectedPlayers = [], sets = [];
 
-function initAddForm() {
-  matchType = 'singles';
-  selectedPlayers = [];
-  sets = [{ a: '', b: '' }, { a: '', b: '' }];
-
-  // Set today's date
-  const today = new Date().toISOString().split('T')[0];
-  $('match-date').value = today;
-
+async function initAddForm() {
+  matchType = 'singles'; selectedPlayers = [];
+  sets = [{ a:'', b:'' }, { a:'', b:'' }];
+  $('match-date').value = new Date().toISOString().split('T')[0];
   updateTypeUI();
-  renderPlayerPool();
+  await renderPlayerPool();
   renderSets();
   renderSelectionDisplay();
 }
 
 function setMatchType(type) {
-  matchType = type;
-  selectedPlayers = [];
-  updateTypeUI();
-  renderPlayerPool();
-  renderSelectionDisplay();
+  matchType = type; selectedPlayers = [];
+  updateTypeUI(); renderPlayerPool(); renderSelectionDisplay();
 }
 
 function updateTypeUI() {
-  document.querySelectorAll('.type-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.type === matchType);
-  });
+  document.querySelectorAll('.type-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.type === matchType));
   $('singles-section').style.display = matchType === 'singles' ? 'block' : 'none';
   $('doubles-section').style.display = matchType === 'doubles' ? 'block' : 'none';
 }
 
-// ─── Singles ───
-function renderSinglesPlayers() {
-  const players = DB.getPlayers();
-  const opts = players.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-  $('singles-a').innerHTML = '<option value="">선수 선택</option>' + opts;
-  $('singles-b').innerHTML = '<option value="">선수 선택</option>' + opts;
-}
-
-// ─── Doubles Player Pool ───
-function renderPlayerPool() {
+async function renderPlayerPool() {
+  const players = await DB.getPlayers();
+  _cache = players;
   if (matchType === 'singles') {
-    renderSinglesPlayers();
+    const opts = players.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    $('singles-a').innerHTML = '<option value="">선수 선택</option>' + opts;
+    $('singles-b').innerHTML = '<option value="">선수 선택</option>' + opts;
     return;
   }
-  const players = DB.getPlayers();
-  if (players.length === 0) {
+  if (!players.length) {
     $('player-pool').innerHTML = '<p style="color:var(--text3);font-size:0.85rem">선수를 먼저 등록해주세요.</p>';
     return;
   }
   $('player-pool').innerHTML = players.map(p => {
     const idx = selectedPlayers.indexOf(p.id);
-    const isA = idx === 0 || idx === 1;
-    const isB = idx === 2 || idx === 3;
-    const cls = idx !== -1 ? (isA ? 'selected-a' : 'selected-b') : '';
-    const num = idx !== -1 ? idx + 1 : '';
-    return `<button class="player-chip ${cls}" onclick="togglePlayerSelection('${p.id}')" id="chip-${p.id}">
-      ${num ? `<span style="font-size:0.7rem;margin-right:4px;opacity:0.8">${num}</span>` : ''}${p.name}
-    </button>`;
+    const cls = idx !== -1 ? (idx < 2 ? 'selected-a' : 'selected-b') : '';
+    const num = idx !== -1 ? `<span style="font-size:0.7rem;margin-right:4px;opacity:0.8">${idx+1}</span>` : '';
+    return `<button class="player-chip ${cls}" onclick="togglePlayer('${p.id}')">${num}${p.name}</button>`;
   }).join('');
 }
 
-function togglePlayerSelection(id) {
+function togglePlayer(id) {
   const idx = selectedPlayers.indexOf(id);
-  if (idx !== -1) {
-    selectedPlayers.splice(idx, 1);
-  } else {
+  if (idx !== -1) selectedPlayers.splice(idx, 1);
+  else {
     if (selectedPlayers.length >= 4) { toast('4명까지 선택 가능합니다.', 'error'); return; }
     selectedPlayers.push(id);
   }
-  renderPlayerPool();
-  renderSelectionDisplay();
+  renderPlayerPool(); renderSelectionDisplay();
 }
 
 function renderSelectionDisplay() {
   if (matchType !== 'doubles') return;
-  const slots = ['', '', '', ''];
-  selectedPlayers.forEach((id, i) => { slots[i] = playerName(id); });
-  const aSlots = [0, 1].map(i => `<div class="sel-player ${slots[i] ? 'filled a' : ''}">${slots[i] || '선수'+(i+1)}</div>`).join('');
-  const bSlots = [2, 3].map(i => `<div class="sel-player ${slots[i] ? 'filled b' : ''}">${slots[i] || '선수'+(i+1)}</div>`).join('');
+  const s = ['','','',''];
+  selectedPlayers.forEach((id,i) => { s[i] = playerName(id); });
+  const aS = [0,1].map(i=>`<div class="sel-player ${s[i]?'filled a':''}">${s[i]||'선수'+(i+1)}</div>`).join('');
+  const bS = [2,3].map(i=>`<div class="sel-player ${s[i]?'filled b':''}">${s[i]||'선수'+(i+1)}</div>`).join('');
   $('sel-display').innerHTML = `
-    <div class="sel-team team-a"><div class="sel-label a">A팀</div>${aSlots}</div>
+    <div class="sel-team team-a"><div class="sel-label a">A팀</div>${aS}</div>
     <div class="sel-vs">VS</div>
-    <div class="sel-team team-b"><div class="sel-label b">B팀</div>${bSlots}</div>`;
+    <div class="sel-team team-b"><div class="sel-label b">B팀</div>${bS}</div>`;
 }
 
-// ─── Sets ───
 function renderSets() {
-  $('set-scores').innerHTML = sets.map((s, i) => `
+  $('set-scores').innerHTML = sets.map((s,i) => `
     <div class="set-row">
       <input class="score-input team-a" type="number" min="0" max="99" value="${s.a}" placeholder="0"
-        oninput="updateSet(${i},'a',this.value)" id="set-a-${i}">
-      <div class="set-dash">${i + 1}세트</div>
+        oninput="sets[${i}].a=this.value===''?'':parseInt(this.value)||0">
+      <div class="set-dash">${i+1}세트</div>
       <input class="score-input team-b" type="number" min="0" max="99" value="${s.b}" placeholder="0"
-        oninput="updateSet(${i},'b',this.value)" id="set-b-${i}">
+        oninput="sets[${i}].b=this.value===''?'':parseInt(this.value)||0">
     </div>`).join('');
-}
-
-function updateSet(i, team, val) {
-  sets[i][team] = val === '' ? '' : parseInt(val) || 0;
 }
 
 function addSet() {
   if (sets.length >= 5) { toast('최대 5세트까지 입력 가능합니다.', 'error'); return; }
-  sets.push({ a: '', b: '' });
-  renderSets();
+  sets.push({ a:'', b:'' }); renderSets();
 }
+function removeSet() { if (sets.length > 1) { sets.pop(); renderSets(); } }
 
-function removeSet() {
-  if (sets.length <= 1) return;
-  sets.pop();
-  renderSets();
-}
-
-function submitMatch() {
+async function submitMatch() {
   const date = $('match-date').value;
   if (!date) { toast('날짜를 선택해주세요.', 'error'); return; }
-
   let teamA = [], teamB = [];
-
   if (matchType === 'singles') {
     const a = $('singles-a').value, b = $('singles-b').value;
     if (!a || !b) { toast('선수 두 명을 선택해주세요.', 'error'); return; }
@@ -353,83 +299,72 @@ function submitMatch() {
     teamA = [a]; teamB = [b];
   } else {
     if (selectedPlayers.length < 4) { toast('4명을 선택해주세요.', 'error'); return; }
-    teamA = selectedPlayers.slice(0, 2);
-    teamB = selectedPlayers.slice(2, 4);
+    teamA = selectedPlayers.slice(0,2); teamB = selectedPlayers.slice(2,4);
   }
-
-  const finalSets = sets.map(s => ({ a: parseInt(s.a) || 0, b: parseInt(s.b) || 0 }));
-  if (finalSets.length === 0) { toast('세트 스코어를 입력해주세요.', 'error'); return; }
-
+  const finalSets = sets.map(s => ({ a: parseInt(s.a)||0, b: parseInt(s.b)||0 }));
   const winner = Rankings.calcWinner(finalSets);
-  if (!winner) { toast('승패를 결정할 수 없습니다. 세트 스코어를 확인해주세요.', 'error'); return; }
+  if (!winner) { toast('승패를 결정할 수 없습니다. 스코어를 확인해주세요.', 'error'); return; }
 
-  DB.addMatch({ date, type: matchType, teamA, teamB, sets: finalSets, winner });
+  const btn = document.querySelector('[onclick="submitMatch()"]');
+  if (btn) { btn.textContent = '⏳ 등록 중...'; btn.disabled = true; }
+  const result = await DB.addMatch({ date, type: matchType, teamA, teamB, sets: finalSets, winner });
+  if (btn) { btn.textContent = '🎾 경기 등록하기'; btn.disabled = false; }
+  if (!result) { toast('등록 중 오류가 발생했습니다.', 'error'); return; }
   toast('경기가 등록되었습니다! 🎾');
-  initAddForm();
   switchTab('history');
 }
 
-// ── PLAYERS ─────────────────────────────────────────
-function renderPlayers() {
-  const players = DB.getPlayers();
-  const matches = DB.getMatches();
-
+// ── PLAYERS ──────────────────────────────────────────
+async function renderPlayers() {
+  loading('player-list');
+  const [players, matches] = await Promise.all([DB.getPlayers(), DB.getMatches()]);
+  _cache = players;
   const statsMap = {};
   matches.forEach(m => {
-    const w = m.winner === 'A' ? m.teamA : m.teamB;
-    const l = m.winner === 'A' ? m.teamB : m.teamA;
-    w.forEach(id => { if (!statsMap[id]) statsMap[id] = {w:0,l:0}; statsMap[id].w++; });
-    l.forEach(id => { if (!statsMap[id]) statsMap[id] = {w:0,l:0}; statsMap[id].l++; });
+    (m.winner==='A'?m.teamA:m.teamB).forEach(id => { statsMap[id]=statsMap[id]||{w:0,l:0}; statsMap[id].w++; });
+    (m.winner==='A'?m.teamB:m.teamA).forEach(id => { statsMap[id]=statsMap[id]||{w:0,l:0}; statsMap[id].l++; });
   });
-
-  const container = $('player-list');
-  if (players.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><p>등록된 선수가 없습니다.<br>아래에서 선수를 추가해주세요.</p></div>`;
+  const el = $('player-list');
+  const cnt = $('player-count');
+  if (!players.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>등록된 선수가 없습니다.<br>아래에서 선수를 추가해주세요.</p></div>';
+    if (cnt) cnt.textContent = '';
     return;
   }
-
-  const countEl = $('player-count');
-  if (countEl) countEl.textContent = `총 ${players.length}명 등록`;
-
-  container.innerHTML = players.map(p => {
-    const s = statsMap[p.id] || { w: 0, l: 0 };
+  if (cnt) cnt.textContent = `총 ${players.length}명 등록`;
+  el.innerHTML = players.map(p => {
+    const s = statsMap[p.id] || {w:0, l:0};
     const total = s.w + s.l;
-    const rate = total > 0 ? Math.round(s.w / total * 100) : '-';
+    const rate = total > 0 ? Math.round(s.w/total*100) : '-';
     return `<div class="player-row">
-      <div class="player-avatar">${getInitial(p.name)}</div>
+      <div class="player-avatar">${p.name.charAt(0)}</div>
       <div class="player-info">
         <div class="player-name">${p.name}</div>
-        <div class="player-stats-mini">${total > 0 ? `${total}경기 · ${s.w}승 ${s.l}패 · 승률 ${rate}%` : '경기 없음'}</div>
+        <div class="player-stats-mini">${total>0?`${total}경기 · ${s.w}승 ${s.l}패 · 승률 ${rate}%`:'경기 없음'}</div>
       </div>
-      <button class="player-del" onclick="deletePlayer('${p.id}')" title="삭제">✕</button>
+      <button class="player-del" onclick="deletePlayer('${p.id}')">✕</button>
     </div>`;
   }).join('');
 }
 
-function addPlayer() {
+async function addPlayer() {
   const input = $('player-name-input');
   const name = input.value.trim();
   if (!name) { toast('이름을 입력해주세요.', 'error'); return; }
-  const result = DB.addPlayer(name);
+  const btn = document.querySelector('[onclick="addPlayer()"]');
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
+  const result = await DB.addPlayer(name);
+  if (btn) { btn.textContent = '등록'; btn.disabled = false; }
   if (result.error) { toast(result.error, 'error'); return; }
-  input.value = '';
-  input.focus();
+  input.value = ''; input.focus();
   toast(`${name} 선수가 등록되었습니다! 👋`);
   renderPlayers();
 }
 
-function resetData() {
-  if (!confirm('모든 데이터를 초기화할까요?\n선수, 경기 기록이 모두 삭제됩니다.')) return;
-  localStorage.removeItem('t_players');
-  localStorage.removeItem('t_matches');
-  toast('데이터가 초기화되었습니다.');
-  switchTab('rankings');
-}
-
-function deletePlayer(id) {
-  const p = DB.getPlayers().find(x => x.id === id);
+async function deletePlayer(id) {
+  const p = _cache.find(x => x.id === id);
   if (!confirm(`${p?.name} 선수를 삭제할까요?\n(관련 경기 기록은 유지됩니다)`)) return;
-  DB.deletePlayer(id);
+  await DB.deletePlayer(id);
   toast('선수가 삭제되었습니다.');
   renderPlayers();
 }
@@ -437,38 +372,5 @@ function deletePlayer(id) {
 // ── INIT ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   switchTab('rankings');
-
-  $('player-name-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') addPlayer();
-  });
-
-  // Demo data — 고유 ID를 직접 지정하여 충돌 방지
-  if (DB.getPlayers().length === 0) {
-    const demoPlayers = [
-      { id:'p_d1', name:'김철수', createdAt:new Date().toISOString() },
-      { id:'p_d2', name:'이영희', createdAt:new Date().toISOString() },
-      { id:'p_d3', name:'박민준', createdAt:new Date().toISOString() },
-      { id:'p_d4', name:'최지현', createdAt:new Date().toISOString() },
-      { id:'p_d5', name:'정우성', createdAt:new Date().toISOString() },
-      { id:'p_d6', name:'한소희', createdAt:new Date().toISOString() },
-    ];
-    DB.savePlayers(demoPlayers);
-    const [p1,p2,p3,p4,p5,p6] = demoPlayers.map(p => p.id);
-
-    const today = new Date().toISOString().split('T')[0];
-    const d1 = new Date(Date.now()-86400000).toISOString().split('T')[0];
-    const d2 = new Date(Date.now()-7*86400000).toISOString().split('T')[0];
-    const d3 = new Date(Date.now()-14*86400000).toISOString().split('T')[0];
-    const demoMatches = [
-      { id:'m_d1', date:today, type:'singles',  teamA:[p1],    teamB:[p2],    sets:[{a:6,b:4},{a:6,b:3}],        winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d2', date:today, type:'doubles',  teamA:[p1,p3], teamB:[p2,p4], sets:[{a:6,b:7},{a:6,b:4},{a:7,b:5}], winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d3', date:d1,    type:'doubles',  teamA:[p5,p1], teamB:[p3,p6], sets:[{a:6,b:3},{a:6,b:4}],        winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d4', date:d1,    type:'singles',  teamA:[p2],    teamB:[p4],    sets:[{a:6,b:2},{a:6,b:4}],        winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d5', date:d2,    type:'doubles',  teamA:[p4,p6], teamB:[p1,p5], sets:[{a:6,b:4},{a:7,b:6}],        winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d6', date:d2,    type:'singles',  teamA:[p3],    teamB:[p2],    sets:[{a:6,b:3},{a:6,b:4}],        winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d7', date:d3,    type:'doubles',  teamA:[p2,p5], teamB:[p3,p4], sets:[{a:6,b:4},{a:3,b:6},{a:6,b:4}], winner:'A', createdAt:new Date().toISOString() },
-      { id:'m_d8', date:d3,    type:'singles',  teamA:[p6],    teamB:[p1],    sets:[{a:6,b:7},{a:6,b:3},{a:6,b:4}], winner:'A', createdAt:new Date().toISOString() },
-    ];
-    DB.saveMatches(demoMatches);
-  }
+  $('player-name-input').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
 });
