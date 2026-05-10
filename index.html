@@ -24,7 +24,7 @@
     <div class="section-header">
       <div>
         <div class="section-title">🏆 랭킹</div>
-        <div class="section-subtitle">기간별 승률 순위</div>
+        <div class="section-subtitle">기간 · 정렬 기준을 선택하세요</div>
       </div>
     </div>
 
@@ -32,6 +32,12 @@
       <button class="period-btn" data-period="1month" onclick="rankPeriod='1month';renderRankings()">최근 1개월</button>
       <button class="period-btn" data-period="1year"  onclick="rankPeriod='1year';renderRankings()">최근 1년</button>
       <button class="period-btn active" data-period="all" onclick="rankPeriod='all';renderRankings()">전체 기간</button>
+    </div>
+
+    <div class="sort-filter">
+      <button class="sort-btn active" data-sort="wins" onclick="rankSort='wins';renderRankings()">🥇 최다승순</button>
+      <button class="sort-btn" data-sort="total" onclick="rankSort='total';renderRankings()">📊 경기수순</button>
+      <button class="sort-btn" data-sort="rate" onclick="rankSort='rate';renderRankings()">📈 승률순</button>
     </div>
 
     <div id="ranking-list" class="ranking-list"></div>

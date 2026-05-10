@@ -62,19 +62,23 @@ const Rankings = {
   calcWinner(sets) {
     let a = 0, b = 0;
     sets.forEach(s => { if (s.a > s.b) a++; else if (s.b > s.a) b++; });
-    return a > b ? 'A' : b > a ? 'B' : null;
+    return a > b ? 'A' : b > a ? 'B' : 'draw';
   },
   compute(players, matches, period) {
     const start = this.getStart(period);
     const filtered = start ? matches.filter(m => m.date >= start) : matches;
     const stats = {};
-    players.forEach(p => { stats[p.id] = { player: p, wins: 0, losses: 0, total: 0 }; });
+    players.forEach(p => { stats[p.id] = { player: p, wins: 0, losses: 0, draws: 0, total: 0 }; });
     filtered.forEach(m => {
       if (!m.winner) return;
-      const win = m.winner === 'A' ? m.teamA : m.teamB;
-      const lose = m.winner === 'A' ? m.teamB : m.teamA;
-      win.forEach(id => { if (stats[id]) { stats[id].wins++; stats[id].total++; } });
-      lose.forEach(id => { if (stats[id]) { stats[id].losses++; stats[id].total++; } });
+      if (m.winner === 'draw') {
+        [...m.teamA, ...m.teamB].forEach(id => { if (stats[id]) { stats[id].draws++; stats[id].total++; } });
+      } else {
+        const win = m.winner === 'A' ? m.teamA : m.teamB;
+        const lose = m.winner === 'A' ? m.teamB : m.teamA;
+        win.forEach(id => { if (stats[id]) { stats[id].wins++; stats[id].total++; } });
+        lose.forEach(id => { if (stats[id]) { stats[id].losses++; stats[id].total++; } });
+      }
     });
     return Object.values(stats).filter(s => s.total > 0)
       .sort((a, b) => {
@@ -125,29 +129,48 @@ function switchTab(tab) {
 
 // ── RANKINGS ─────────────────────────────────────────
 let rankPeriod = 'all';
+let rankSort = 'wins'; // 'wins' | 'total' | 'rate'
+
+function sortData(data) {
+  if (rankSort === 'wins')  return [...data].sort((a, b) => b.wins - a.wins  || b.total - a.total);
+  if (rankSort === 'total') return [...data].sort((a, b) => b.total - a.total || b.wins - a.wins);
+  if (rankSort === 'rate')  return [...data].sort((a, b) => {
+    const ra = a.wins / a.total, rb = b.wins / b.total;
+    return Math.abs(rb - ra) > 0.0001 ? rb - ra : b.wins - a.wins;
+  });
+  return data;
+}
 
 async function renderRankings() {
   document.querySelectorAll('.period-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.period === rankPeriod));
+  document.querySelectorAll('.sort-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.sort === rankSort));
   loading('ranking-list');
   const [players, matches] = await Promise.all([DB.getPlayers(), DB.getMatches()]);
   _cache = players;
-  const data = Rankings.compute(players, matches, rankPeriod);
+  const raw  = Rankings.compute(players, matches, rankPeriod);
+  const data = sortData(raw);
   const el = $('ranking-list');
   if (!data.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">🎾</div><p>아직 경기 기록이 없습니다.</p></div>';
     return;
   }
+  const sortLabel = rankSort === 'wins' ? '승' : rankSort === 'total' ? '경기' : '승률';
   el.innerHTML = data.map((s, i) => {
     const rate = Math.round(s.wins / s.total * 100);
     const rc = rate >= 60 ? 'high' : rate >= 40 ? 'mid' : 'low';
     const bc = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
     const barColor = rate >= 60 ? 'var(--primary)' : rate >= 40 ? 'var(--yellow)' : 'var(--danger)';
+    const drawTxt = s.draws > 0 ? ` ${s.draws}무` : '';
+    const highlight = rankSort === 'wins'  ? `<span class="rank-highlight">${s.wins}승</span>` :
+                      rankSort === 'total' ? `<span class="rank-highlight">${s.total}경기</span>` :
+                                            `<span class="rank-highlight rank-rate-sm ${rc}">${rate}%</span>`;
     return `<div class="rank-card">
       <div class="rank-badge ${bc}">${i < 3 ? ['🥇','🥈','🥉'][i] : i+1}</div>
       <div class="rank-info">
-        <div class="rank-name">${s.player.name}</div>
-        <div class="rank-meta">${s.total}경기 · ${s.wins}승 ${s.losses}패</div>
+        <div class="rank-name">${s.player.name} ${highlight}</div>
+        <div class="rank-meta">${s.total}경기 · ${s.wins}승 ${s.losses}패${drawTxt} · 승률 ${rate}%</div>
         <div class="win-bar-wrap"><div class="win-bar" style="width:${rate}%;background:${barColor}"></div></div>
       </div>
       <div class="rank-rate ${rc}">${rate}%</div>
@@ -177,18 +200,24 @@ async function renderHistory() {
 function matchCard(m) {
   const dbl = m.type === 'doubles';
   const cnt = setCount(m.sets || []);
+  const isDraw = m.winner === 'draw';
   const aWin = m.winner === 'A', bWin = m.winner === 'B';
   const aN = m.teamA.map(playerName).join(' / ');
   const bN = m.teamB.map(playerName).join(' / ');
+  const aClass = isDraw ? 'draw' : aWin ? 'winner' : 'loser';
+  const bClass = isDraw ? 'draw' : bWin ? 'winner' : 'loser';
+  const aPrefix = aWin ? '🏆 ' : isDraw ? '🤝 ' : '';
+  const bPrefix = bWin ? '🏆 ' : isDraw ? '🤝 ' : '';
   return `<div class="match-card">
     <span class="match-type-badge ${dbl?'doubles':'singles'}">${dbl?'복식':'단식'}</span>
     <div class="match-teams">
-      <div class="team-names team-a ${aWin?'winner':'loser'}">${aWin?'🏆 ':''}${aN}</div>
+      <div class="team-names team-a ${aClass}">${aPrefix}${aN}</div>
       <div class="score-display">
-        <div class="score-sets">${cnt.a} : ${cnt.b}</div>
+        <div class="score-sets ${isDraw?'draw-score':''}"
+        >${cnt.a} : ${cnt.b}${isDraw?' 🤝':''}</div>
         <div class="score-detail">${setDetail(m.sets||[])}</div>
       </div>
-      <div class="team-names team-b ${bWin?'winner':'loser'}">${bWin?'🏆 ':''}${bN}</div>
+      <div class="team-names team-b ${bClass}">${bPrefix}${bN}</div>
     </div>
     <div class="match-actions">
       <button class="btn-delete" onclick="deleteMatch('${m.id}')">🗑 삭제</button>
@@ -208,7 +237,7 @@ let matchType = 'singles', selectedPlayers = [], sets = [];
 
 async function initAddForm() {
   matchType = 'singles'; selectedPlayers = [];
-  sets = [{ a:'', b:'' }, { a:'', b:'' }];
+  sets = [{ a: 0, b: 0 }, { a: 0, b: 0 }];
   $('match-date').value = new Date().toISOString().split('T')[0];
   updateTypeUI();
   await renderPlayerPool();
@@ -271,20 +300,45 @@ function renderSelectionDisplay() {
     <div class="sel-team team-b"><div class="sel-label b">B팀</div>${bS}</div>`;
 }
 
+const SCORE_STEPS = [0, 15, 30, 40, 50];
+
+function nextScore(current) {
+  const cur = parseInt(current) || 0;
+  const idx = SCORE_STEPS.indexOf(cur);
+  return idx === -1 || idx === SCORE_STEPS.length - 1 ? 0 : SCORE_STEPS[idx + 1];
+}
+
+function cycleScore(setIdx, team) {
+  sets[setIdx][team] = nextScore(sets[setIdx][team]);
+  renderSets();
+}
+
 function renderSets() {
-  $('set-scores').innerHTML = sets.map((s,i) => `
+  $('set-scores').innerHTML = sets.map((s, i) => {
+    const aVal = parseInt(s.a) || 0;
+    const bVal = parseInt(s.b) || 0;
+    const aIdx = SCORE_STEPS.indexOf(aVal);
+    const bIdx = SCORE_STEPS.indexOf(bVal);
+    const aPct = aIdx === -1 ? 0 : Math.round(aIdx / (SCORE_STEPS.length - 1) * 100);
+    const bPct = bIdx === -1 ? 0 : Math.round(bIdx / (SCORE_STEPS.length - 1) * 100);
+    return `
     <div class="set-row">
-      <input class="score-input team-a" type="number" min="0" max="99" value="${s.a}" placeholder="0"
-        oninput="sets[${i}].a=this.value===''?'':parseInt(this.value)||0">
+      <button class="score-btn team-a" onclick="cycleScore(${i},'a')">
+        <span class="score-btn-val">${aVal}</span>
+        <div class="score-btn-bar"><div class="score-btn-fill a" style="width:${aPct}%"></div></div>
+      </button>
       <div class="set-dash">${i+1}세트</div>
-      <input class="score-input team-b" type="number" min="0" max="99" value="${s.b}" placeholder="0"
-        oninput="sets[${i}].b=this.value===''?'':parseInt(this.value)||0">
-    </div>`).join('');
+      <button class="score-btn team-b" onclick="cycleScore(${i},'b')">
+        <span class="score-btn-val">${bVal}</span>
+        <div class="score-btn-bar"><div class="score-btn-fill b" style="width:${bPct}%"></div></div>
+      </button>
+    </div>`;
+  }).join('');
 }
 
 function addSet() {
-  if (sets.length >= 6) { toast('최대 6세트까지 입력 가능합니다.', 'error'); return; }
-  sets.push({ a:'', b:'' }); renderSets();
+  if (sets.length >= 12) { toast('최대 12세트까지 입력 가능합니다.', 'error'); return; }
+  sets.push({ a: 0, b: 0 }); renderSets();
 }
 function removeSet() { if (sets.length > 1) { sets.pop(); renderSets(); } }
 
@@ -301,9 +355,8 @@ async function submitMatch() {
     if (selectedPlayers.length < 4) { toast('4명을 선택해주세요.', 'error'); return; }
     teamA = selectedPlayers.slice(0,2); teamB = selectedPlayers.slice(2,4);
   }
-  const finalSets = sets.map(s => ({ a: parseInt(s.a)||0, b: parseInt(s.b)||0 }));
+  const finalSets = sets.map(s => ({ a: typeof s.a === 'number' ? s.a : parseInt(s.a)||0, b: typeof s.b === 'number' ? s.b : parseInt(s.b)||0 }));
   const winner = Rankings.calcWinner(finalSets);
-  if (!winner) { toast('승패를 결정할 수 없습니다. 스코어를 확인해주세요.', 'error'); return; }
 
   const btn = document.querySelector('[onclick="submitMatch()"]');
   if (btn) { btn.textContent = '⏳ 등록 중...'; btn.disabled = true; }
