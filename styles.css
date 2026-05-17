@@ -587,3 +587,74 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 .lightbox-prev { left: 12px; }
 .lightbox-next { right: 12px; }
 
+.lightbox-content {
+  display: flex; flex-direction: column; align-items: center;
+  max-width: calc(100vw - 120px);
+}
+.lightbox-memo {
+  margin-top: 10px;
+  font-size: 0.88rem; color: rgba(255,255,255,0.85);
+  text-align: center;
+  background: rgba(0,0,0,0.4);
+  padding: 6px 14px; border-radius: 20px;
+  min-height: 0;
+}
+.lightbox-memo:empty { display: none; }
+.lightbox-actions {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 10px;
+}
+.lb-action-btn {
+  padding: 9px 18px;
+  border: none; border-radius: 20px;
+  background: rgba(255,255,255,0.18);
+  color: #fff; font-family: inherit; font-size: 0.85rem; font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.lb-action-btn:hover { background: rgba(255,255,255,0.3); }
+.lb-action-btn.danger:hover { background: rgba(255,80,80,0.5); }
+
+/* 썸네일 메모 */
+.photo-thumb-memo {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.6);
+  color: #fff; font-size: 0.7rem;
+  padding: 4px 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 편집 오버레이 */
+.edit-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 1100;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0;
+  animation: fadeIn 0.2s ease;
+}
+.edit-modal {
+  background: var(--card);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 20px 20px 36px;
+  width: 100%; max-width: 480px;
+  border-top: 1px solid var(--border2);
+}
+.edit-modal-title {
+  font-size: 1rem; font-weight: 700; color: var(--text);
+  margin-bottom: 4px;
+}
+.edit-memo-input { resize: none; }
+.edit-photo-replace {
+  border: 1px dashed var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  cursor: pointer; text-align: center;
+  color: var(--text2); font-size: 0.85rem;
+  transition: all 0.2s;
+}
+.edit-photo-replace:hover { border-color: var(--primary); color: var(--primary); }
+
+

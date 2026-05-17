@@ -55,11 +55,23 @@ const DB = {
     return data || [];
   },
 
-  async addPhoto({ date, url, path }) {
+  async addPhoto({ date, url, path, memo }) {
     const id = 'ph_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-    const { error } = await sb.from('photos').insert({ id, date, url, path });
+    const { error } = await sb.from('photos').insert({ id, date, url, path, memo: memo || null });
     if (error) { console.error(error); return null; }
-    return { id, date, url, path };
+    return { id, date, url, path, memo };
+  },
+
+  async updatePhoto(id, { memo, url, path, oldPath }) {
+    const updates = { memo: memo || null };
+    if (url) updates.url = url;
+    if (path) updates.path = path;
+    const { error } = await sb.from('photos').update(updates).eq('id', id);
+    if (error) { console.error(error); return false; }
+    if (oldPath && path && oldPath !== path) {
+      await sb.storage.from('photos').remove([oldPath]);
+    }
+    return true;
   },
 
   async deletePhoto(id, path) {
@@ -516,12 +528,14 @@ function cancelPhotoUpload() {
   $('photo-preview-section').style.display = 'none';
   $('photo-preview-grid').innerHTML = '';
   $('photo-date').value = '';
+  $('photo-memo').value = '';
 }
 
 async function uploadPhotos() {
   const date = $('photo-date').value;
   if (!date) { toast('날짜를 선택해주세요.', 'error'); return; }
   if (!_pendingFiles.length) { toast('사진을 선택해주세요.', 'error'); return; }
+  const memo = $('photo-memo').value.trim();
   const btn = $('photo-upload-btn');
   btn.textContent = '⏳ 업로드 중...'; btn.disabled = true;
   let ok = 0;
@@ -531,7 +545,7 @@ async function uploadPhotos() {
     const { error: upErr } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
     if (upErr) { console.error(upErr); continue; }
     const { data: { publicUrl } } = sb.storage.from('photos').getPublicUrl(path);
-    const res = await DB.addPhoto({ date, url: publicUrl, path });
+    const res = await DB.addPhoto({ date, url: publicUrl, path, memo });
     if (res) ok++;
   }
   btn.textContent = '📤 올리기'; btn.disabled = false;
@@ -563,7 +577,7 @@ async function renderPhotoGallery() {
           const idx = _lightboxPhotos.findIndex(x => x.id === p.id);
           return `<div class="photo-thumb" onclick="openLightbox(${idx})">
             <img src="${p.url}" loading="lazy">
-            <button class="photo-thumb-del" onclick="event.stopPropagation();deletePhoto('${p.id}','${p.path}')">🗑</button>
+            ${p.memo ? `<div class="photo-thumb-memo">${p.memo}</div>` : ''}
           </div>`;
         }).join('')}
       </div>
@@ -579,22 +593,117 @@ async function deletePhoto(id, path) {
 
 function openLightbox(idx) {
   _lightboxIdx = idx;
+  const p = _lightboxPhotos[idx];
   const lb = document.createElement('div');
   lb.className = 'lightbox';
   lb.id = 'lightbox';
   lb.innerHTML = `
     <button class="lightbox-close" onclick="closeLightbox()">✕</button>
     <button class="lightbox-prev" onclick="moveLightbox(-1)">‹</button>
-    <img class="lightbox-img" id="lightbox-img" src="${_lightboxPhotos[idx].url}">
-    <button class="lightbox-next" onclick="moveLightbox(1)">›</button>`;
+    <div class="lightbox-content">
+      <img class="lightbox-img" id="lightbox-img" src="${p.url}">
+      <div class="lightbox-memo" id="lightbox-memo">${p.memo ? `<span>${p.memo}</span>` : ''}</div>
+    </div>
+    <button class="lightbox-next" onclick="moveLightbox(1)">›</button>
+    <div class="lightbox-actions">
+      <button class="lb-action-btn" onclick="editPhotoMemo()">✏️ 수정</button>
+      <button class="lb-action-btn" onclick="downloadPhoto()">⬇️ 다운로드</button>
+      <button class="lb-action-btn danger" onclick="deleteCurrentPhoto()">🗑 삭제</button>
+    </div>`;
   lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
   document.body.appendChild(lb);
 }
+
 function closeLightbox() { const lb = $('lightbox'); if (lb) lb.remove(); }
+
 function moveLightbox(dir) {
   _lightboxIdx = (_lightboxIdx + dir + _lightboxPhotos.length) % _lightboxPhotos.length;
+  const p = _lightboxPhotos[_lightboxIdx];
   const img = $('lightbox-img');
-  if (img) img.src = _lightboxPhotos[_lightboxIdx].url;
+  const memo = $('lightbox-memo');
+  if (img) img.src = p.url;
+  if (memo) memo.innerHTML = p.memo ? `<span>${p.memo}</span>` : '';
+}
+
+async function deleteCurrentPhoto() {
+  const p = _lightboxPhotos[_lightboxIdx];
+  if (!confirm('이 사진을 삭제할까요?')) return;
+  closeLightbox();
+  await DB.deletePhoto(p.id, p.path);
+  toast('사진이 삭제되었습니다.');
+  renderPhotoGallery();
+}
+
+function editPhotoMemo() {
+  const p = _lightboxPhotos[_lightboxIdx];
+  // 편집 오버레이 생성
+  const overlay = document.createElement('div');
+  overlay.id = 'edit-overlay';
+  overlay.className = 'edit-overlay';
+  overlay.innerHTML = `
+    <div class="edit-modal">
+      <div class="edit-modal-title">✏️ 사진 수정</div>
+      <label class="form-label" style="margin-top:12px">메모 수정</label>
+      <textarea class="form-input edit-memo-input" id="edit-memo-text" placeholder="메모 입력 (선택사항)" rows="3">${p.memo || ''}</textarea>
+      <label class="form-label" style="margin-top:12px">사진 교체 <span style="color:var(--text3);font-size:0.75rem">(선택사항)</span></label>
+      <div class="edit-photo-replace" onclick="document.getElementById('edit-photo-input').click()">
+        <span id="edit-photo-label">📷 새 사진 선택...</span>
+        <input type="file" id="edit-photo-input" accept="image/*" style="display:none" onchange="editPhotoSelected(event)">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-secondary" onclick="closeEditOverlay()" style="flex:1">취소</button>
+        <button class="btn btn-primary" onclick="savePhotoEdit('${p.id}','${p.path}')" style="flex:1">💾 저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+let _editNewFile = null;
+function editPhotoSelected(e) {
+  _editNewFile = e.target.files[0] || null;
+  if (_editNewFile) $('edit-photo-label').textContent = `✅ ${_editNewFile.name}`;
+}
+function closeEditOverlay() {
+  const ov = $('edit-overlay');
+  if (ov) ov.remove();
+  _editNewFile = null;
+}
+
+async function savePhotoEdit(id, oldPath) {
+  const memo = $('edit-memo-text').value.trim();
+  let url = null, path = null;
+  if (_editNewFile) {
+    const p = _lightboxPhotos[_lightboxIdx];
+    const blob = await compressImage(_editNewFile);
+    const date = p.date;
+    path = `${date}/${Date.now()}_${Math.random().toString(36).slice(2,6)}.jpg`;
+    const { error: upErr } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (upErr) { toast('사진 교체 실패.', 'error'); return; }
+    const { data: { publicUrl } } = sb.storage.from('photos').getPublicUrl(path);
+    url = publicUrl;
+  }
+  const ok = await DB.updatePhoto(id, { memo, url, path, oldPath: _editNewFile ? oldPath : null });
+  if (ok) {
+    toast('수정되었습니다! ✅');
+    closeEditOverlay();
+    closeLightbox();
+    renderPhotoGallery();
+  } else {
+    toast('수정 실패.', 'error');
+  }
+}
+
+async function downloadPhoto() {
+  const p = _lightboxPhotos[_lightboxIdx];
+  try {
+    const res = await fetch(p.url);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `tennis_${p.date}_${p.id.slice(-6)}.jpg`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch { toast('다운로드 실패.', 'error'); }
 }
 
 // ── INIT ─────────────────────────────────────────────

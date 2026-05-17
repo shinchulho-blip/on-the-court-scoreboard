@@ -170,8 +170,10 @@
     <!-- 업로드 미리보기 + 날짜 선택 -->
     <div id="photo-preview-section" style="display:none">
       <div class="card" style="margin-bottom:12px">
-        <div class="form-label">📅 사진 날짜</div>
+        <div class="form-label">📅 사진 날짜 <span style="color:var(--text3);font-size:0.75rem">(과거 날짜로 변경 가능)</span></div>
         <input type="date" class="form-input" id="photo-date" style="margin-bottom:12px">
+        <div class="form-label">📝 메모 <span style="color:var(--text3);font-size:0.75rem">(선택사항)</span></div>
+        <textarea class="form-input" id="photo-memo" placeholder="이 사진에 대한 한 줄 메모..." rows="2" style="margin-bottom:12px;resize:none"></textarea>
         <div id="photo-preview-grid" class="photo-preview-grid"></div>
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn btn-secondary" onclick="cancelPhotoUpload()" style="flex:1">취소</button>
