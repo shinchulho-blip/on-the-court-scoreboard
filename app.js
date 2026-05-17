@@ -464,7 +464,7 @@ let _lightboxPhotos = [], _lightboxIdx = 0;
 // 이미지 압축: 최대 1080px, JPEG 품질 0.75 → 모바일 쾌적 수준의 최소 크기
 function compressImage(file) {
   return new Promise((resolve) => {
-    const MAX = 1080, QUALITY = 0.75;
+    const MAX = 1440, QUALITY = 0.85;
     const reader = new FileReader();
     reader.onload = e => {
       const img = new Image();
