@@ -150,6 +150,40 @@
     </div>
   </section>
 
+  <!-- PHOTOS TAB -->
+  <section id="sec-photos" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">📸 사진 앨범</div>
+        <div class="section-subtitle">경기 날의 추억을 공유하세요</div>
+      </div>
+    </div>
+
+    <!-- 업로드 영역 -->
+    <div class="photo-upload-area" id="photo-upload-area" onclick="document.getElementById('photo-file-input').click()">
+      <div class="photo-upload-icon">📷</div>
+      <div class="photo-upload-text">사진을 눌러 업로드하세요</div>
+      <div class="photo-upload-sub">자동으로 압축 후 저장됩니다</div>
+      <input type="file" id="photo-file-input" accept="image/*" multiple style="display:none" onchange="handlePhotoSelect(event)">
+    </div>
+
+    <!-- 업로드 미리보기 + 날짜 선택 -->
+    <div id="photo-preview-section" style="display:none">
+      <div class="card" style="margin-bottom:12px">
+        <div class="form-label">📅 사진 날짜</div>
+        <input type="date" class="form-input" id="photo-date" style="margin-bottom:12px">
+        <div id="photo-preview-grid" class="photo-preview-grid"></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-secondary" onclick="cancelPhotoUpload()" style="flex:1">취소</button>
+          <button class="btn btn-primary" id="photo-upload-btn" onclick="uploadPhotos()" style="flex:1">📤 올리기</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 갤러리 -->
+    <div id="photo-gallery"></div>
+  </section>
+
   <!-- BOTTOM NAV -->
   <nav class="bottom-nav">
     <button class="nav-btn active" data-tab="rankings" onclick="switchTab('rankings')">
@@ -163,6 +197,10 @@
     <button class="nav-btn" data-tab="add" onclick="switchTab('add')">
       <span class="nav-icon">➕</span>
       <span class="nav-label">경기 등록</span>
+    </button>
+    <button class="nav-btn" data-tab="photos" onclick="switchTab('photos')">
+      <span class="nav-icon">📸</span>
+      <span class="nav-label">사진</span>
     </button>
     <button class="nav-btn" data-tab="players" onclick="switchTab('players')">
       <span class="nav-icon">👥</span>

@@ -47,6 +47,24 @@ const DB = {
 
   async deleteMatch(id) {
     await sb.from('matches').delete().eq('id', id);
+  },
+
+  async getPhotos() {
+    const { data, error } = await sb.from('photos').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return data || [];
+  },
+
+  async addPhoto({ date, url, path }) {
+    const id = 'ph_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const { error } = await sb.from('photos').insert({ id, date, url, path });
+    if (error) { console.error(error); return null; }
+    return { id, date, url, path };
+  },
+
+  async deletePhoto(id, path) {
+    await sb.storage.from('photos').remove([path]);
+    await sb.from('photos').delete().eq('id', id);
   }
 };
 
@@ -125,6 +143,7 @@ function switchTab(tab) {
   if (tab === 'history')  renderHistory();
   if (tab === 'add')      initAddForm();
   if (tab === 'players')  renderPlayers();
+  if (tab === 'photos')   initPhotosTab();
 }
 
 // ── RANKINGS ─────────────────────────────────────────
@@ -238,7 +257,11 @@ let matchType = 'singles', selectedPlayers = [], sets = [];
 async function initAddForm() {
   matchType = 'singles'; selectedPlayers = [];
   sets = [{ a: 0, b: 0 }, { a: 0, b: 0 }];
-  $('match-date').value = new Date().toISOString().split('T')[0];
+  const _today = new Date();
+  const _yyyy = _today.getFullYear();
+  const _mm = String(_today.getMonth() + 1).padStart(2, '0');
+  const _dd = String(_today.getDate()).padStart(2, '0');
+  $('match-date').value = `${_yyyy}-${_mm}-${_dd}`;
   updateTypeUI();
   await renderPlayerPool();
   renderSets();
@@ -422,8 +445,166 @@ async function deletePlayer(id) {
   renderPlayers();
 }
 
+// ── PHOTOS ───────────────────────────────────────────
+let _pendingFiles = []; // 업로드 대기 File 객체
+let _lightboxPhotos = [], _lightboxIdx = 0;
+
+// 이미지 압축: 최대 1080px, JPEG 품질 0.75 → 모바일 쾌적 수준의 최소 크기
+function compressImage(file) {
+  return new Promise((resolve) => {
+    const MAX = 1080, QUALITY = 0.75;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else       { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => resolve(blob), 'image/jpeg', QUALITY);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function initPhotosTab() {
+  cancelPhotoUpload();
+  renderPhotoGallery();
+}
+
+function handlePhotoSelect(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  _pendingFiles.push(...files);
+  e.target.value = '';
+  $('photo-upload-area').style.display = 'none';
+  $('photo-preview-section').style.display = 'block';
+  // 날짜 기본값: 로컬 오늘
+  if (!$('photo-date').value) {
+    const t = new Date();
+    const y = t.getFullYear(), m = String(t.getMonth()+1).padStart(2,'0'), d = String(t.getDate()).padStart(2,'0');
+    $('photo-date').value = `${y}-${m}-${d}`;
+  }
+  renderPhotoPreview();
+}
+
+function renderPhotoPreview() {
+  $('photo-preview-grid').innerHTML = _pendingFiles.map((f, i) => {
+    const url = URL.createObjectURL(f);
+    return `<div class="photo-preview-item">
+      <img src="${url}" loading="lazy">
+      <button class="photo-preview-remove" onclick="removePending(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function removePending(i) {
+  _pendingFiles.splice(i, 1);
+  if (!_pendingFiles.length) { cancelPhotoUpload(); return; }
+  renderPhotoPreview();
+}
+
+function cancelPhotoUpload() {
+  _pendingFiles = [];
+  $('photo-upload-area').style.display = 'block';
+  $('photo-preview-section').style.display = 'none';
+  $('photo-preview-grid').innerHTML = '';
+  $('photo-date').value = '';
+}
+
+async function uploadPhotos() {
+  const date = $('photo-date').value;
+  if (!date) { toast('날짜를 선택해주세요.', 'error'); return; }
+  if (!_pendingFiles.length) { toast('사진을 선택해주세요.', 'error'); return; }
+  const btn = $('photo-upload-btn');
+  btn.textContent = '⏳ 업로드 중...'; btn.disabled = true;
+  let ok = 0;
+  for (const file of _pendingFiles) {
+    const blob = await compressImage(file);
+    const path = `${date}/${Date.now()}_${Math.random().toString(36).slice(2,6)}.jpg`;
+    const { error: upErr } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (upErr) { console.error(upErr); continue; }
+    const { data: { publicUrl } } = sb.storage.from('photos').getPublicUrl(path);
+    const res = await DB.addPhoto({ date, url: publicUrl, path });
+    if (res) ok++;
+  }
+  btn.textContent = '📤 올리기'; btn.disabled = false;
+  if (ok > 0) {
+    toast(`${ok}장 업로드 완료! 📸`);
+    cancelPhotoUpload();
+    renderPhotoGallery();
+  } else {
+    toast('업로드 실패. Supabase 설정을 확인해주세요.', 'error');
+  }
+}
+
+async function renderPhotoGallery() {
+  const el = $('photo-gallery');
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">⏳ 불러오는 중...</div>';
+  const photos = await DB.getPhotos();
+  if (!photos.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📷</div><p>아직 사진이 없습니다.<br>첫 번째 사진을 올려보세요!</p></div>';
+    return;
+  }
+  const byDate = {};
+  photos.forEach(p => { (byDate[p.date] = byDate[p.date] || []).push(p); });
+  _lightboxPhotos = photos;
+  el.innerHTML = Object.keys(byDate).sort((a,b) => b.localeCompare(a)).map(date => `
+    <div class="photo-date-group">
+      <div class="photo-date-label">📅 ${fmt(date)} · ${byDate[date].length}장</div>
+      <div class="photo-grid">
+        ${byDate[date].map(p => {
+          const idx = _lightboxPhotos.findIndex(x => x.id === p.id);
+          return `<div class="photo-thumb" onclick="openLightbox(${idx})">
+            <img src="${p.url}" loading="lazy">
+            <button class="photo-thumb-del" onclick="event.stopPropagation();deletePhoto('${p.id}','${p.path}')">🗑</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`).join('');
+}
+
+async function deletePhoto(id, path) {
+  if (!confirm('이 사진을 삭제할까요?')) return;
+  await DB.deletePhoto(id, path);
+  toast('사진이 삭제되었습니다.');
+  renderPhotoGallery();
+}
+
+function openLightbox(idx) {
+  _lightboxIdx = idx;
+  const lb = document.createElement('div');
+  lb.className = 'lightbox';
+  lb.id = 'lightbox';
+  lb.innerHTML = `
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <button class="lightbox-prev" onclick="moveLightbox(-1)">‹</button>
+    <img class="lightbox-img" id="lightbox-img" src="${_lightboxPhotos[idx].url}">
+    <button class="lightbox-next" onclick="moveLightbox(1)">›</button>`;
+  lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+  document.body.appendChild(lb);
+}
+function closeLightbox() { const lb = $('lightbox'); if (lb) lb.remove(); }
+function moveLightbox(dir) {
+  _lightboxIdx = (_lightboxIdx + dir + _lightboxPhotos.length) % _lightboxPhotos.length;
+  const img = $('lightbox-img');
+  if (img) img.src = _lightboxPhotos[_lightboxIdx].url;
+}
+
 // ── INIT ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   switchTab('rankings');
   $('player-name-input').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
+  document.addEventListener('keydown', e => {
+    if (!$('lightbox')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft')  moveLightbox(-1);
+    if (e.key === 'ArrowRight') moveLightbox(1);
+  });
 });
