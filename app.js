@@ -591,27 +591,111 @@ async function deletePhoto(id, path) {
   renderPhotoGallery();
 }
 
+// ── 줌 상태 변수 ──────────────────────────────────────
+let _lbScale = 1, _lbTX = 0, _lbTY = 0;
+let _lbDragging = false, _lbDragSX = 0, _lbDragSY = 0, _lbDragMoved = false;
+let _lbLastTap = 0, _lbPinchDist0 = 0, _lbTouchSX = 0;
+
+function _lbApply() {
+  const img = $('lightbox-img'), zl = $('zoom-level');
+  if (img) img.style.transform = `translate(${_lbTX}px,${_lbTY}px) scale(${_lbScale})`;
+  if (zl)  zl.textContent = Math.round(_lbScale * 100) + '%';
+}
+function _lbResetZoom() { _lbScale = 1; _lbTX = 0; _lbTY = 0; _lbApply(); }
+function lbZoomIn()  { _lbScale = Math.min(_lbScale * 1.3, 5); _lbApply(); }
+function lbZoomOut() { _lbScale = Math.max(_lbScale / 1.3, 1); if (_lbScale <= 1.01) { _lbScale=1; _lbTX=0; _lbTY=0; } _lbApply(); }
+function _lbPinch(t) { const dx=t[0].clientX-t[1].clientX, dy=t[0].clientY-t[1].clientY; return Math.sqrt(dx*dx+dy*dy); }
+
 function openLightbox(idx) {
-  _lightboxIdx = idx;
+  _lightboxIdx = idx; _lbScale = 1; _lbTX = 0; _lbTY = 0;
   const p = _lightboxPhotos[idx];
   const lb = document.createElement('div');
-  lb.className = 'lightbox';
-  lb.id = 'lightbox';
+  lb.className = 'lightbox'; lb.id = 'lightbox';
   lb.innerHTML = `
-    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-    <button class="lightbox-prev" onclick="moveLightbox(-1)">‹</button>
-    <div class="lightbox-content">
-      <img class="lightbox-img" id="lightbox-img" src="${p.url}">
-      <div class="lightbox-memo" id="lightbox-memo">${p.memo ? `<span>${p.memo}</span>` : ''}</div>
+    <div class="lightbox-top-bar">
+      <button class="lightbox-close" onclick="closeLightbox()">\u2715</button>
+      <div class="lightbox-zoom-controls">
+        <button class="zoom-btn" onclick="lbZoomOut()">\u2212</button>
+        <span id="zoom-level">100%</span>
+        <button class="zoom-btn" onclick="lbZoomIn()">+</button>
+      </div>
     </div>
-    <button class="lightbox-next" onclick="moveLightbox(1)">›</button>
-    <div class="lightbox-actions">
-      <button class="lb-action-btn" onclick="editPhotoMemo()">✏️ 수정</button>
-      <button class="lb-action-btn" onclick="downloadPhoto()">⬇️ 다운로드</button>
-      <button class="lb-action-btn danger" onclick="deleteCurrentPhoto()">🗑 삭제</button>
+    <div class="lightbox-img-wrapper" id="lb-wrapper">
+      <img class="lightbox-img" id="lightbox-img" src="${p.url}" draggable="false">
+    </div>
+    <button class="lightbox-prev" onclick="moveLightbox(-1)">\u2039</button>
+    <button class="lightbox-next" onclick="moveLightbox(1)">\u203a</button>
+    <div class="lightbox-bottom">
+      ${p.memo ? `<div class="lightbox-memo">${p.memo}</div>` : ''}
+      <div class="lightbox-actions">
+        <button class="lb-action-btn" onclick="editPhotoMemo()">\u270f\ufe0f \uc218\uc815</button>
+        <button class="lb-action-btn" onclick="downloadPhoto()">\u2b07\ufe0f \ub2e4\uc6b4\ub85c\ub4dc</button>
+        <button class="lb-action-btn danger" onclick="deleteCurrentPhoto()">\ud83d\uddd1 \uc0ad\uc81c</button>
+      </div>
     </div>`;
-  lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
   document.body.appendChild(lb);
+
+  const wrapper = $('lb-wrapper');
+
+  // 휠 줌 (PC)
+  wrapper.addEventListener('wheel', e => {
+    e.preventDefault();
+    const f = e.deltaY < 0 ? 1.15 : 1/1.15;
+    _lbScale = Math.min(Math.max(_lbScale * f, 1), 5);
+    if (_lbScale <= 1.01) { _lbScale=1; _lbTX=0; _lbTY=0; }
+    _lbApply();
+  }, { passive: false });
+
+  // 마우스 드래그 (PC)
+  wrapper.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    _lbDragging = true; _lbDragMoved = false;
+    _lbDragSX = e.clientX - _lbTX; _lbDragSY = e.clientY - _lbTY;
+    wrapper.classList.add('dragging');
+  });
+  window.addEventListener('mousemove', e => {
+    if (!_lbDragging) return;
+    if (Math.abs(e.clientX-_lbDragSX-_lbTX)>3||Math.abs(e.clientY-_lbDragSY-_lbTY)>3) _lbDragMoved=true;
+    if (_lbScale > 1) { _lbTX = e.clientX-_lbDragSX; _lbTY = e.clientY-_lbDragSY; _lbApply(); }
+  });
+  window.addEventListener('mouseup', () => { _lbDragging=false; wrapper.classList.remove('dragging'); });
+
+  // 터치 (모바일)
+  wrapper.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      _lbPinchDist0 = _lbPinch(e.touches);
+    } else if (e.touches.length === 1) {
+      const now = Date.now();
+      _lbTouchSX = e.touches[0].clientX;
+      if (now - _lbLastTap < 280) {
+        _lbScale > 1 ? _lbResetZoom() : (_lbScale=2.5, _lbApply());
+      }
+      _lbLastTap = now;
+      _lbDragSX = e.touches[0].clientX - _lbTX;
+      _lbDragSY = e.touches[0].clientY - _lbTY;
+    }
+  }, { passive: true });
+
+  wrapper.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const d = _lbPinch(e.touches);
+      _lbScale = Math.min(Math.max(_lbScale * (d/_lbPinchDist0), 1), 5);
+      _lbPinchDist0 = d; _lbApply();
+    } else if (e.touches.length === 1 && _lbScale > 1) {
+      e.preventDefault();
+      _lbTX = e.touches[0].clientX-_lbDragSX;
+      _lbTY = e.touches[0].clientY-_lbDragSY;
+      _lbApply();
+    }
+  }, { passive: false });
+
+  // 스와이프로 이전/다음 (줌 해제 상태만)
+  wrapper.addEventListener('touchend', e => {
+    if (_lbScale > 1) return;
+    const dx = e.changedTouches[0].clientX - _lbTouchSX;
+    if (Math.abs(dx) > 60) moveLightbox(dx < 0 ? 1 : -1);
+  }, { passive: true });
 }
 
 function closeLightbox() { const lb = $('lightbox'); if (lb) lb.remove(); }
@@ -620,10 +704,18 @@ function moveLightbox(dir) {
   _lightboxIdx = (_lightboxIdx + dir + _lightboxPhotos.length) % _lightboxPhotos.length;
   const p = _lightboxPhotos[_lightboxIdx];
   const img = $('lightbox-img');
-  const memo = $('lightbox-memo');
+  const bottom = document.querySelector('.lightbox-bottom');
+  _lbResetZoom();
   if (img) img.src = p.url;
-  if (memo) memo.innerHTML = p.memo ? `<span>${p.memo}</span>` : '';
+  if (bottom) bottom.innerHTML = `
+    ${p.memo ? `<div class="lightbox-memo">${p.memo}</div>` : ''}
+    <div class="lightbox-actions">
+      <button class="lb-action-btn" onclick="editPhotoMemo()">\u270f\ufe0f \uc218\uc815</button>
+      <button class="lb-action-btn" onclick="downloadPhoto()">\u2b07\ufe0f \ub2e4\uc6b4\ub85c\ub4dc</button>
+      <button class="lb-action-btn danger" onclick="deleteCurrentPhoto()">\ud83d\uddd1 \uc0ad\uc81c</button>
+    </div>`;
 }
+
 
 async function deleteCurrentPhoto() {
   const p = _lightboxPhotos[_lightboxIdx];
