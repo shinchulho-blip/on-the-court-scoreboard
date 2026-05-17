@@ -473,7 +473,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 .photo-upload-area {
   border: 2px dashed var(--border2);
   border-radius: var(--radius);
-  padding: 32px 20px;
+  padding: 10px 20px;
   text-align: center;
   cursor: pointer;
   transition: all 0.25s;
@@ -486,9 +486,9 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   border-color: var(--primary);
   background: var(--primary-dim);
 }
-.photo-upload-icon { font-size: 2.4rem; margin-bottom: 8px; }
-.photo-upload-text { font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-.photo-upload-sub  { font-size: 0.78rem; color: var(--text3); }
+.photo-upload-icon { font-size: 1.4rem; margin-bottom: 2px; }
+.photo-upload-text { font-size: 0.88rem; font-weight: 700; color: var(--text); margin-bottom: 1px; }
+.photo-upload-sub  { font-size: 0.72rem; color: var(--text3); }
 
 .photo-preview-grid {
   display: grid;
