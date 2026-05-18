@@ -477,7 +477,7 @@ async function uploadToCloudinary(blob) {
 // 이미지 압축: 최대 2400px, JPEG 품질 0.90 → 얼굴 식별 가능한 고화질
 function compressImage(file) {
   return new Promise((resolve) => {
-    const MAX = 2400, QUALITY = 0.90;
+    const MAX = 3000, QUALITY = 0.92;
     const reader = new FileReader();
     reader.onload = e => {
       const img = new Image();
