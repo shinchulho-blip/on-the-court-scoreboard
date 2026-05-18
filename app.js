@@ -3,6 +3,10 @@ const SUPABASE_URL = 'https://gngpqiymvoluijeyrwqd.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImduZ3BxaXltdm9sdWlqZXlyd3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyNTE5MDUsImV4cCI6MjA5MzgyNzkwNX0.fgeB2TQmzGzuw5MTzBC9g2yzyMPhzM7mcWWOGM7rkXw';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ── CLOUDINARY ───────────────────────────────────────
+const CLOUDINARY_CLOUD = 'dlxfdnraz';
+const CLOUDINARY_PRESET = 'onthecourt';
+
 // ── DB ───────────────────────────────────────────────
 const DB = {
   async getPlayers() {
@@ -62,20 +66,16 @@ const DB = {
     return { id, date, url, path, memo };
   },
 
-  async updatePhoto(id, { memo, url, path, oldPath }) {
+  async updatePhoto(id, { memo, url, path }) {
     const updates = { memo: memo || null };
     if (url) updates.url = url;
     if (path) updates.path = path;
     const { error } = await sb.from('photos').update(updates).eq('id', id);
     if (error) { console.error(error); return false; }
-    if (oldPath && path && oldPath !== path) {
-      await sb.storage.from('photos').remove([oldPath]);
-    }
     return true;
   },
 
-  async deletePhoto(id, path) {
-    await sb.storage.from('photos').remove([path]);
+  async deletePhoto(id) {
     await sb.from('photos').delete().eq('id', id);
   }
 };
@@ -461,10 +461,23 @@ async function deletePlayer(id) {
 let _pendingFiles = []; // 업로드 대기 File 객체
 let _lightboxPhotos = [], _lightboxIdx = 0;
 
-// 이미지 압축: 최대 1080px, JPEG 품질 0.75 → 모바일 쾌적 수준의 최소 크기
+// Cloudinary 업로드
+async function uploadToCloudinary(blob) {
+  const fd = new FormData();
+  fd.append('file', blob, 'photo.jpg');
+  fd.append('upload_preset', CLOUDINARY_PRESET);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {
+    method: 'POST', body: fd
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return { url: data.secure_url, publicId: data.public_id };
+}
+
+// 이미지 압축: 최대 2400px, JPEG 품질 0.90 → 얼굴 식별 가능한 고화질
 function compressImage(file) {
   return new Promise((resolve) => {
-    const MAX = 1440, QUALITY = 0.85;
+    const MAX = 2400, QUALITY = 0.90;
     const reader = new FileReader();
     reader.onload = e => {
       const img = new Image();
@@ -541,11 +554,9 @@ async function uploadPhotos() {
   let ok = 0;
   for (const file of _pendingFiles) {
     const blob = await compressImage(file);
-    const path = `${date}/${Date.now()}_${Math.random().toString(36).slice(2,6)}.jpg`;
-    const { error: upErr } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
-    if (upErr) { console.error(upErr); continue; }
-    const { data: { publicUrl } } = sb.storage.from('photos').getPublicUrl(path);
-    const res = await DB.addPhoto({ date, url: publicUrl, path, memo });
+    const uploaded = await uploadToCloudinary(blob);
+    if (!uploaded) { console.error('Cloudinary upload failed'); continue; }
+    const res = await DB.addPhoto({ date, url: uploaded.url, path: uploaded.publicId, memo });
     if (res) ok++;
   }
   btn.textContent = '📤 올리기'; btn.disabled = false;
@@ -554,7 +565,7 @@ async function uploadPhotos() {
     cancelPhotoUpload();
     renderPhotoGallery();
   } else {
-    toast('업로드 실패. Supabase 설정을 확인해주세요.', 'error');
+    toast('업로드 실패. Cloudinary 설정을 확인해주세요.', 'error');
   }
 }
 
@@ -584,9 +595,9 @@ async function renderPhotoGallery() {
     </div>`).join('');
 }
 
-async function deletePhoto(id, path) {
+async function deletePhoto(id) {
   if (!confirm('이 사진을 삭제할까요?')) return;
-  await DB.deletePhoto(id, path);
+  await DB.deletePhoto(id);
   toast('사진이 삭제되었습니다.');
   renderPhotoGallery();
 }
@@ -721,7 +732,7 @@ async function deleteCurrentPhoto() {
   const p = _lightboxPhotos[_lightboxIdx];
   if (!confirm('이 사진을 삭제할까요?')) return;
   closeLightbox();
-  await DB.deletePhoto(p.id, p.path);
+  await DB.deletePhoto(p.id);
   toast('사진이 삭제되었습니다.');
   renderPhotoGallery();
 }
@@ -744,7 +755,7 @@ function editPhotoMemo() {
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
         <button class="btn btn-secondary" onclick="closeEditOverlay()" style="flex:1">취소</button>
-        <button class="btn btn-primary" onclick="savePhotoEdit('${p.id}','${p.path}')" style="flex:1">💾 저장</button>
+        <button class="btn btn-primary" onclick="savePhotoEdit('${p.id}')" style="flex:1">💾 저장</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -761,20 +772,17 @@ function closeEditOverlay() {
   _editNewFile = null;
 }
 
-async function savePhotoEdit(id, oldPath) {
+async function savePhotoEdit(id) {
   const memo = $('edit-memo-text').value.trim();
   let url = null, path = null;
   if (_editNewFile) {
-    const p = _lightboxPhotos[_lightboxIdx];
     const blob = await compressImage(_editNewFile);
-    const date = p.date;
-    path = `${date}/${Date.now()}_${Math.random().toString(36).slice(2,6)}.jpg`;
-    const { error: upErr } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
-    if (upErr) { toast('사진 교체 실패.', 'error'); return; }
-    const { data: { publicUrl } } = sb.storage.from('photos').getPublicUrl(path);
-    url = publicUrl;
+    const uploaded = await uploadToCloudinary(blob);
+    if (!uploaded) { toast('사진 교체 실패.', 'error'); return; }
+    url = uploaded.url;
+    path = uploaded.publicId;
   }
-  const ok = await DB.updatePhoto(id, { memo, url, path, oldPath: _editNewFile ? oldPath : null });
+  const ok = await DB.updatePhoto(id, { memo, url, path });
   if (ok) {
     toast('수정되었습니다! ✅');
     closeEditOverlay();
