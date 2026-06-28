@@ -20,10 +20,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare static files
+        run: |
+          mkdir -p dist
+          cp index.html app.js styles.css dist/
+          touch dist/.nojekyll
+
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: .
-          exclude_assets: '.github,.git'
+          publish_dir: ./dist
