@@ -186,6 +186,35 @@
     <div id="photo-gallery"></div>
   </section>
 
+  <!-- DRINKS TAB -->
+  <section id="sec-drinks" class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-title">🥤 음료 신청</div>
+        <div class="section-subtitle">이번 주 일요일 음료를 신청하세요</div>
+      </div>
+    </div>
+
+    <!-- 날짜 선택 -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="form-label" style="margin-bottom:8px">📅 날짜</div>
+      <input type="date" class="form-input" id="drinks-date" onchange="renderDrinks()">
+    </div>
+
+    <!-- 신청 폼 -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="form-label" style="margin-bottom:10px">✍️ 음료 신청</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <input type="text" class="form-input" id="drink-name-input" placeholder="이름 입력... (예: 홍길동)">
+        <input type="text" class="form-input" id="drink-item-input" placeholder="음료 입력... (예: 이온음료, 아메리카노)">
+        <button class="btn btn-primary" onclick="submitDrink()" style="margin-top:4px">🥤 신청하기</button>
+      </div>
+    </div>
+
+    <!-- 신청 목록 -->
+    <div id="drinks-list"></div>
+  </section>
+
   <!-- BOTTOM NAV -->
   <nav class="bottom-nav">
     <button class="nav-btn active" data-tab="rankings" onclick="switchTab('rankings')">
@@ -207,6 +236,10 @@
     <button class="nav-btn" data-tab="players" onclick="switchTab('players')">
       <span class="nav-icon">👥</span>
       <span class="nav-label">선수 관리</span>
+    </button>
+    <button class="nav-btn" data-tab="drinks" onclick="switchTab('drinks')">
+      <span class="nav-icon">🥤</span>
+      <span class="nav-label">음료</span>
     </button>
   </nav>
 

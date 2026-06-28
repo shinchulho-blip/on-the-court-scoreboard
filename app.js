@@ -77,6 +77,23 @@ const DB = {
 
   async deletePhoto(id) {
     await sb.from('photos').delete().eq('id', id);
+  },
+
+  async getDrinks(date) {
+    const { data, error } = await sb.from('drinks').select('*').eq('date', date).order('created_at', { ascending: true });
+    if (error) { console.error(error); return []; }
+    return data || [];
+  },
+
+  async addDrink(name, drink, date) {
+    const id = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const { error } = await sb.from('drinks').insert({ id, name, drink, date });
+    if (error) return { error: '등록 중 오류가 발생했습니다.' };
+    return { id, name, drink, date };
+  },
+
+  async deleteDrink(id) {
+    await sb.from('drinks').delete().eq('id', id);
   }
 };
 
@@ -156,6 +173,7 @@ function switchTab(tab) {
   if (tab === 'add')      initAddForm();
   if (tab === 'players')  renderPlayers();
   if (tab === 'photos')   initPhotosTab();
+  if (tab === 'drinks')   initDrinksTab();
 }
 
 // ── RANKINGS ─────────────────────────────────────────
@@ -806,7 +824,77 @@ async function downloadPhoto() {
   } catch { toast('다운로드 실패.', 'error'); }
 }
 
+// ── DRINKS ───────────────────────────────────────────
+function getThisSunday() {
+  const today = new Date();
+  const day = today.getDay();
+  const diff = day === 0 ? 0 : 7 - day;
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() + diff);
+  const y = sunday.getFullYear();
+  const m = String(sunday.getMonth() + 1).padStart(2, '0');
+  const d = String(sunday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function initDrinksTab() {
+  if (!$('drinks-date').value) {
+    $('drinks-date').value = getThisSunday();
+  }
+  renderDrinks();
+}
+
+async function renderDrinks() {
+  const date = $('drinks-date').value;
+  if (!date) return;
+  const el = $('drinks-list');
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">⏳ 불러오는 중...</div>';
+  const drinks = await DB.getDrinks(date);
+  if (!drinks.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🥤</div><p>아직 신청한 음료가 없습니다.<br>첫 번째로 신청해보세요!</p></div>';
+    return;
+  }
+  el.innerHTML = `
+    <div style="font-size:0.9rem;color:var(--text2);margin-bottom:10px">총 ${drinks.length}명 신청</div>
+    ${drinks.map((d, i) => `
+      <div class="player-row">
+        <div class="player-avatar">${i + 1}</div>
+        <div class="player-info">
+          <div class="player-name">${d.name}</div>
+          <div class="player-stats-mini">🥤 ${d.drink}</div>
+        </div>
+        <button class="player-del" onclick="deleteDrinkItem('${d.id}')">✕</button>
+      </div>
+    `).join('')}
+  `;
+}
+
+async function submitDrink() {
+  const name = $('drink-name-input').value.trim();
+  const drink = $('drink-item-input').value.trim();
+  const date = $('drinks-date').value;
+  if (!name) { toast('이름을 입력해주세요.', 'error'); return; }
+  if (!drink) { toast('음료를 입력해주세요.', 'error'); return; }
+  const btn = document.querySelector('[onclick="submitDrink()"]');
+  if (btn) { btn.textContent = '⏳ 신청 중...'; btn.disabled = true; }
+  const result = await DB.addDrink(name, drink, date);
+  if (btn) { btn.textContent = '신청하기'; btn.disabled = false; }
+  if (result.error) { toast(result.error, 'error'); return; }
+  $('drink-name-input').value = '';
+  $('drink-item-input').value = '';
+  toast(`${name}님 음료 신청 완료! 🥤`);
+  renderDrinks();
+}
+
+async function deleteDrinkItem(id) {
+  if (!confirm('신청을 취소할까요?')) return;
+  await DB.deleteDrink(id);
+  toast('신청이 취소되었습니다.');
+  renderDrinks();
+}
+
 // ── INIT ─────────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', () => {
   switchTab('rankings');
   $('player-name-input').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
