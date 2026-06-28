@@ -88,7 +88,13 @@ const DB = {
   async addDrink(name, drink, date) {
     const id = 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     const { error } = await sb.from('drinks').insert({ id, name, drink, date });
-    if (error) return { error: '등록 중 오류가 발생했습니다.' };
+    if (error) {
+      console.error('addDrink failed:', error);
+      if (error.code === '42501') {
+        return { error: '음료 테이블 권한 설정이 필요합니다. Supabase RLS 정책을 확인해주세요.' };
+      }
+      return { error: `등록 중 오류가 발생했습니다. (${error.message || error.code})` };
+    }
     return { id, name, drink, date };
   },
 
@@ -837,11 +843,29 @@ function getThisSunday() {
   return `${y}-${m}-${d}`;
 }
 
-function initDrinksTab() {
+async function initDrinksTab() {
   if (!$('drinks-date').value) {
     $('drinks-date').value = getThisSunday();
   }
+  await renderDrinkPlayerOptions();
   renderDrinks();
+}
+
+async function renderDrinkPlayerOptions() {
+  const select = $('drink-name-input');
+  if (!select) return;
+  const current = select.value;
+  const players = await DB.getPlayers();
+  _cache = players;
+  if (!players.length) {
+    select.innerHTML = '<option value="">선수를 먼저 등록해주세요</option>';
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = '<option value="">선수 선택</option>' +
+    players.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+  if (players.some(p => p.name === current)) select.value = current;
 }
 
 async function renderDrinks() {
@@ -873,7 +897,7 @@ async function submitDrink() {
   const name = $('drink-name-input').value.trim();
   const drink = $('drink-item-input').value.trim();
   const date = $('drinks-date').value;
-  if (!name) { toast('이름을 입력해주세요.', 'error'); return; }
+  if (!name) { toast('선수를 선택해주세요.', 'error'); return; }
   if (!drink) { toast('음료를 입력해주세요.', 'error'); return; }
   const btn = document.querySelector('[onclick="submitDrink()"]');
   if (btn) { btn.textContent = '⏳ 신청 중...'; btn.disabled = true; }

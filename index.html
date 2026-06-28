@@ -205,7 +205,9 @@
     <div class="card" style="margin-bottom:16px">
       <div class="form-label" style="margin-bottom:10px">✍️ 음료 신청</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <input type="text" class="form-input" id="drink-name-input" placeholder="이름 입력... (예: 홍길동)">
+        <select class="form-input" id="drink-name-input">
+          <option value="">선수 선택</option>
+        </select>
         <input type="text" class="form-input" id="drink-item-input" placeholder="음료 입력... (예: 이온음료, 아메리카노)">
         <button class="btn btn-primary" onclick="submitDrink()" style="margin-top:4px">🥤 신청하기</button>
       </div>
