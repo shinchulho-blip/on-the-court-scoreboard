@@ -881,11 +881,13 @@ async function renderDrinks() {
   el.innerHTML = `
     <div style="font-size:0.9rem;color:var(--text2);margin-bottom:10px">총 ${drinks.length}명 신청</div>
     ${drinks.map((d, i) => `
-      <div class="player-row">
+      <div class="player-row drink-row">
         <div class="player-avatar">${i + 1}</div>
         <div class="player-info">
-          <div class="player-name">${d.name}</div>
-          <div class="player-stats-mini">🥤 ${d.drink}</div>
+          <div class="drink-order-main">
+            <span class="player-name">${d.name}</span>
+            <span class="drink-menu">🥤 ${d.drink}</span>
+          </div>
         </div>
         <button class="player-del" onclick="deleteDrinkItem('${d.id}')">✕</button>
       </div>

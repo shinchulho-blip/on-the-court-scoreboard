@@ -426,6 +426,19 @@ body {
 .player-info { flex: 1; }
 .player-name { font-weight: 700; }
 .player-stats-mini { font-size: 0.75rem; color: var(--text2); margin-top: 2px; }
+.drink-row { align-items: center; }
+.drink-order-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.drink-menu {
+  color: var(--primary);
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
 .player-del {
   background: none; border: none;
   color: var(--text3); cursor: pointer;
@@ -678,5 +691,4 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   transition: all 0.2s;
 }
 .edit-photo-replace:hover { border-color: var(--primary); color: var(--primary); }
-
 
