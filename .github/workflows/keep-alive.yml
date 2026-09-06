@@ -1,0 +1,18 @@
+name: Supabase Keep Alive
+
+on:
+  schedule:
+    - cron: '0 9 */3 * *'  # 3일마다 오전 9시 자동 실행
+  workflow_dispatch:        # 수동으로도 실행 가능
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        run: |
+          curl -s \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImduZ3BxaXltdm9sdWlqZXlyd3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyNTE5MDUsImV4cCI6MjA5MzgyNzkwNX0.fgeB2TQmzGzuw5MTzBC9g2yzyMPhzM7mcWWOGM7rkXw" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImduZ3BxaXltdm9sdWlqZXlyd3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyNTE5MDUsImV4cCI6MjA5MzgyNzkwNX0.fgeB2TQmzGzuw5MTzBC9g2yzyMPhzM7mcWWOGM7rkXw" \
+            "https://gngpqiymvoluijeyrwqd.supabase.co/rest/v1/players?select=count&limit=1" \
+            && echo "✅ Supabase 연결 성공 - 프로젝트 활성 상태 유지"
